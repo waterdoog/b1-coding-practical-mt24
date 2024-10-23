@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
 from .terrain import generate_reference_and_limits
+import pandas as pd
 
 class Submarine:
     def __init__(self):
@@ -75,8 +76,16 @@ class Mission:
 
     @classmethod
     def from_csv(cls, file_name: str):
-        # You are required to implement this method
-        pass
+        # read csv usng pandas
+        data = pd.read_csv(file_name)
+
+        # file including 'reference', 'cave_height', 'cave_depth'
+        reference = data['reference'].values
+        cave_height = data['cave_height'].values
+        cave_depth = data['cave_depth'].values
+
+        # convert to numpy
+        return cls(reference, cave_height, cave_depth)
 
 
 class ClosedLoop:
@@ -101,7 +110,32 @@ class ClosedLoop:
             self.plant.transition(actions[t], disturbances[t])
 
         return Trajectory(positions)
-        
+    
+    def simulate(self, mission: Mission, disturbances: np.ndarray) -> Trajectory:
+        T = len(mission.reference)
+        if len(disturbances) < T:
+            raise ValueError("Disturbances must be at least as long as mission duration")
+
+        positions = np.zeros((T, 2))
+        actions = np.zeros(T)
+        self.plant.reset_state()
+
+        for t in range(T):
+            # get position and observation
+            positions[t] = self.plant.get_position()
+            observation_t = self.plant.get_depth()
+
+            # find error
+            error_t = mission.reference[t] - observation_t
+
+            # calculation
+            actions[t] = self.controller.compute_control_action(error_t)
+
+            # action and disturbances
+            self.plant.transition(actions[t], disturbances[t])
+
+        # return trajectory
+        return Trajectory(positions)    
     def simulate_with_random_disturbances(self, mission: Mission, variance: float = 0.5) -> Trajectory:
         disturbances = np.random.normal(0, variance, len(mission.reference))
         return self.simulate(mission, disturbances)
